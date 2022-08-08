@@ -46,7 +46,7 @@ print(house.bake())
 print(house.cool())
 print(house.heat())
 
-'Oven(brand='Electrolux') Fridge(brand='Bosch')'
+'Oven(brand="Electrolux") Fridge(brand="Bosch")'
 'Cake'
 '-18° C'
 '200° C'

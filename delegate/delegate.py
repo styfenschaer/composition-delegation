@@ -140,7 +140,7 @@ def _as_list_or_tuple(arg):
     return arg
 
 
-def delegate(to, attrs=None, names=None, /):
+def delegate(to, attrs, names=None, /):
     attrs = _as_list_or_tuple(attrs)
     if names is None:
         names = [attr.split(".")[-1] for attr in attrs]

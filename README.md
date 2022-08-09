@@ -2,7 +2,7 @@
 
 ```python
 from dataclasses import dataclass, field
-from delegate import delegate
+from delegate import delegate, delegates
 
 @dataclass
 class Fridge:
@@ -20,21 +20,22 @@ class Oven:
 
 @dataclass
 class Kitchen:
-    fridge: field(default_factory=Fridge)
-    oven: field(default_factory=Oven)
+    fridge: Fridge
+    oven: Oven
 
     def bake(self):
         return "Cake"
 
+@delegate("kitchen", "bake")
+@delegate("kitchen", ["oven", "fridge"])
+@delegate("kitchen", "bake", "make_cake")
 @dataclass
-@delegate(
-    ("kitchen", ["oven", "fridge"]),
-    ("kitchen", "bake"),
+@delegates(
     ("kitchen.fridge", "cool"),
     ("kitchen", "oven.heat"),
 )
 class House:
-    kitchen: field(default_factory=Kitchen)
+    kitchen: Kitchen
 
 fridge = Fridge("Bosch")
 oven = Oven("Electrolux")
@@ -45,10 +46,12 @@ print(house.oven, house.fridge)
 print(house.bake())
 print(house.cool())
 print(house.heat())
+print(house.make_cake())
 
 'Oven(brand="Electrolux") Fridge(brand="Bosch")'
 'Cake'
 '-18° C'
 '200° C'
+'Cake'
 ```
 

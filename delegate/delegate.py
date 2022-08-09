@@ -1,6 +1,8 @@
 import ast
-import inspect
-import sys
+
+_get_name = "_get_{0}"
+_set_name = "_set_{0}"
+_del_name = "_del_{0}"
 
 
 def chop_and_collect(obj, attr):
@@ -28,10 +30,10 @@ def deep_attribute(chunks, ctx):
 
 def make_getter(obj, attr):
     chunks = chop_and_collect(obj, attr)
-    attr_name = chunks[-1]
+    name = chunks[-1]
 
     tree = ast.FunctionDef(
-        name=attr_name,
+        name=_get_name.format(name),
         args=ast.arguments(
             posonlyargs=[],
             args=[
@@ -48,22 +50,17 @@ def make_getter(obj, attr):
                 value=deep_attribute(chunks, ctx=ast.Load()),
             ),
         ],
-        decorator_list=[
-            ast.Name(
-                id="property",
-                ctx=ast.Load(),
-            ),
-        ],
+        decorator_list=[],
     )
     return ast.fix_missing_locations(tree)
 
 
 def make_setter(obj, attr):
     chunks = chop_and_collect(obj, attr)
-    attr_name = chunks[-1]
+    name = chunks[-1]
 
     tree = ast.FunctionDef(
-        name=attr_name,
+        name=_set_name.format(name),
         args=ast.arguments(
             posonlyargs=[],
             args=[
@@ -89,26 +86,17 @@ def make_setter(obj, attr):
                 ),
             ),
         ],
-        decorator_list=[
-            ast.Attribute(
-                value=ast.Name(
-                    id=attr_name,
-                    ctx=ast.Load(),
-                ),
-                attr="setter",
-                ctx=ast.Load(),
-            ),
-        ],
+        decorator_list=[],
     )
     return ast.fix_missing_locations(tree)
 
 
 def make_deleter(obj, attr):
     chunks = chop_and_collect(obj, attr)
-    attr_name = chunks[-1]
+    name = chunks[-1]
 
     tree = ast.FunctionDef(
-        name=attr_name,
+        name=_del_name.format(name),
         args=ast.arguments(
             posonlyargs=[],
             args=[
@@ -127,59 +115,61 @@ def make_deleter(obj, attr):
                 ],
             ),
         ],
-        decorator_list=[
-            ast.Attribute(
-                value=ast.Name(
-                    id=attr_name,
-                    ctx=ast.Load(),
-                ),
-                attr="deleter",
-                ctx=ast.Load(),
-            ),
-        ],
+        decorator_list=[],
     )
     return ast.fix_missing_locations(tree)
 
 
-def unindented_source(obj):
-    lns = inspect.getsourcelines(obj)[0]
-    wspaces = len(lns[0]) - len(lns[0].lstrip())
-    lns = [ln[wspaces:] for ln in lns]
-    return "".join(lns)
+def make_accessor_module(obj, attr):
+    return ast.Module(
+        body=[
+            make_getter(obj, attr),
+            make_setter(obj, attr),
+            make_deleter(obj, attr),
+        ],
+        type_ignores=[],
+    )
 
 
-def delegate(*args):
-    if not isinstance(args[0], (list, tuple)):
-        args = args,
-
-    def decorator(cls):
-        src = unindented_source(cls)
-        tree = ast.parse(src)
-        tree.body[0].decorator_list = []
-
-        for to, *objs in args:
-            if isinstance(objs[0], (list, tuple)):
-                objs = objs[0]
-
-            for obj in objs:
-                tree.body[0].body.extend([
-                    make_getter(to, obj),
-                    make_setter(to, obj),
-                    make_deleter(to, obj),
-                ])
-
-        tree = ast.fix_missing_locations(tree)
-
-        ns = sys._getframe(1).f_globals
-        exec(compile(tree, "<ast>", "exec"), ns)
-
-        return ns.get(cls.__name__)
-
-    return decorator
+def as_list_or_tuple(arg):
+    if not isinstance(arg, (list, tuple)):
+        arg = [arg]
+    return arg
 
 
-if __name__ == "__main__":
-    from dataclasses import dataclass, field
+def delegate(to, attrs=None, names=None, /):
+    attrs = as_list_or_tuple(attrs)
+    if names is None:
+        names = [attr.split(".")[-1] for attr in attrs]
+    names = as_list_or_tuple(names)
+
+    def wrapper(cls):
+        ns = {}
+        for attr, name in zip(attrs, names):
+            tree = make_accessor_module(to, attr)
+            exec(compile(tree, "<ast>", "exec"), ns)
+
+            attr_name = attr.split(".")[-1]
+            fget = ns[_get_name.format(attr_name)]
+            fset = ns[_set_name.format(attr_name)]
+            fdel = ns[_del_name.format(attr_name)]
+            setattr(cls, name, property(fget, fset, fdel))
+
+        return cls
+    return wrapper
+
+
+def delegates(*args):
+    def wrapper(cls):
+        for arg in args:
+            cls = delegate(*arg)(cls)
+
+        return cls
+    return wrapper
+
+
+def _main():
+    from dataclasses import dataclass
 
     @dataclass
     class Fridge:
@@ -197,21 +187,22 @@ if __name__ == "__main__":
 
     @dataclass
     class Kitchen:
-        fridge: field(default_factory=Fridge)
-        oven: field(default_factory=Oven)
+        fridge: Fridge
+        oven: Oven
 
         def bake(self):
             return "Cake"
 
+    @delegate("kitchen", "bake")
+    @delegate("kitchen", ["oven", "fridge"])
+    @delegate("kitchen", "bake", "make_cake")
     @dataclass
-    @delegate(
-        ("kitchen", "oven", "fridge"),
-        ("kitchen", "bake"),
+    @delegates(
         ("kitchen.fridge", "cool"),
         ("kitchen", "oven.heat"),
     )
     class House:
-        kitchen: field(default_factory=Kitchen)
+        kitchen: Kitchen
 
     fridge = Fridge("Bosch")
     oven = Oven("Electrolux")
@@ -222,3 +213,8 @@ if __name__ == "__main__":
     print(house.bake())
     print(house.cool())
     print(house.heat())
+    print(house.make_cake())
+
+
+if __name__ == "__main__":
+    _main()

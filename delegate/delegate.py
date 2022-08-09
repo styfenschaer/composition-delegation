@@ -1,12 +1,11 @@
 import ast
 
+__all__ = ("delegate", "delegates")
+
+
 _get_name = "_get_{0}"
 _set_name = "_set_{0}"
 _del_name = "_del_{0}"
-
-
-def chop_and_collect(obj, attr):
-    return ["self"] + obj.split(".") + attr.split(".")
 
 
 def deep_attribute(chunks, ctx):
@@ -28,8 +27,12 @@ def deep_attribute(chunks, ctx):
     return attr
 
 
+def _chop_and_collect(obj, attr):
+    return ["self"] + obj.split(".") + attr.split(".")
+
+
 def make_getter(obj, attr):
-    chunks = chop_and_collect(obj, attr)
+    chunks = _chop_and_collect(obj, attr)
     name = chunks[-1]
 
     tree = ast.FunctionDef(
@@ -56,7 +59,7 @@ def make_getter(obj, attr):
 
 
 def make_setter(obj, attr):
-    chunks = chop_and_collect(obj, attr)
+    chunks = _chop_and_collect(obj, attr)
     name = chunks[-1]
 
     tree = ast.FunctionDef(
@@ -92,7 +95,7 @@ def make_setter(obj, attr):
 
 
 def make_deleter(obj, attr):
-    chunks = chop_and_collect(obj, attr)
+    chunks = _chop_and_collect(obj, attr)
     name = chunks[-1]
 
     tree = ast.FunctionDef(
@@ -131,17 +134,17 @@ def make_accessor_module(obj, attr):
     )
 
 
-def as_list_or_tuple(arg):
+def _as_list_or_tuple(arg):
     if not isinstance(arg, (list, tuple)):
         arg = [arg]
     return arg
 
 
 def delegate(to, attrs=None, names=None, /):
-    attrs = as_list_or_tuple(attrs)
+    attrs = _as_list_or_tuple(attrs)
     if names is None:
         names = [attr.split(".")[-1] for attr in attrs]
-    names = as_list_or_tuple(names)
+    names = _as_list_or_tuple(names)
 
     def wrapper(cls):
         ns = {}

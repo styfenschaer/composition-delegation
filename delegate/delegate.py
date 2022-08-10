@@ -3,9 +3,9 @@ import ast
 __all__ = ("delegate", "delegates")
 
 
-_get_name = "_get_{0}"
-_set_name = "_set_{0}"
-_del_name = "_del_{0}"
+_get_name = "fget_{0}"
+_set_name = "fset_{0}"
+_del_name = "fdel_{0}"
 
 
 def deep_attribute(chunks, ctx):
@@ -27,12 +27,12 @@ def deep_attribute(chunks, ctx):
     return attr
 
 
-def _chop_and_collect(obj, attr):
-    return ["self"] + obj.split(".") + attr.split(".")
+def _chop_and_collect(owner, attr):
+    return ["self"] + owner.split(".") + attr.split(".")
 
 
-def make_getter(obj, attr):
-    chunks = _chop_and_collect(obj, attr)
+def make_getter(owner, attr):
+    chunks = _chop_and_collect(owner, attr)
     name = chunks[-1]
 
     tree = ast.FunctionDef(
@@ -58,8 +58,8 @@ def make_getter(obj, attr):
     return ast.fix_missing_locations(tree)
 
 
-def make_setter(obj, attr):
-    chunks = _chop_and_collect(obj, attr)
+def make_setter(owner, attr):
+    chunks = _chop_and_collect(owner, attr)
     name = chunks[-1]
 
     tree = ast.FunctionDef(
@@ -94,8 +94,8 @@ def make_setter(obj, attr):
     return ast.fix_missing_locations(tree)
 
 
-def make_deleter(obj, attr):
-    chunks = _chop_and_collect(obj, attr)
+def make_deleter(owner, attr):
+    chunks = _chop_and_collect(owner, attr)
     name = chunks[-1]
 
     tree = ast.FunctionDef(
@@ -123,12 +123,12 @@ def make_deleter(obj, attr):
     return ast.fix_missing_locations(tree)
 
 
-def make_accessor_module(obj, attr):
+def make_accessor_module(owner, attr):
     return ast.Module(
         body=[
-            make_getter(obj, attr),
-            make_setter(obj, attr),
-            make_deleter(obj, attr),
+            make_getter(owner, attr),
+            make_setter(owner, attr),
+            make_deleter(owner, attr),
         ],
         type_ignores=[],
     )
@@ -140,23 +140,23 @@ def _as_list_or_tuple(arg):
     return arg
 
 
-def delegate(to, attrs, names=None, /):
-    attrs = _as_list_or_tuple(attrs)
-    if names is None:
-        names = [attr.split(".")[-1] for attr in attrs]
-    names = _as_list_or_tuple(names)
+def delegate(to, what, as_=None, /):
+    what = _as_list_or_tuple(what)
+    if as_ is None:
+        as_ = [w.split(".")[-1] for w in what]
+    as_ = _as_list_or_tuple(as_)
 
     def wrapper(cls):
         ns = {}
-        for attr, name in zip(attrs, names):
-            tree = make_accessor_module(to, attr)
+        for what_i, as_i in zip(what, as_):
+            tree = make_accessor_module(to, what_i)
             exec(compile(tree, "<ast>", "exec"), ns)
 
-            attr_name = attr.split(".")[-1]
+            attr_name = what_i.split(".")[-1]
             fget = ns[_get_name.format(attr_name)]
             fset = ns[_set_name.format(attr_name)]
             fdel = ns[_del_name.format(attr_name)]
-            setattr(cls, name, property(fget, fset, fdel))
+            setattr(cls, as_i, property(fget, fset, fdel))
 
         return cls
     return wrapper
@@ -169,55 +169,3 @@ def delegates(*args):
 
         return cls
     return wrapper
-
-
-def _main():
-    from dataclasses import dataclass
-
-    @dataclass
-    class Fridge:
-        brand: str
-
-        def cool(self):
-            return "-18° C"
-
-    @dataclass
-    class Oven:
-        brand: str
-
-        def heat(self):
-            return "200° C"
-
-    @dataclass
-    class Kitchen:
-        fridge: Fridge
-        oven: Oven
-
-        def bake(self):
-            return "Cake"
-
-    @delegate("kitchen", "bake")
-    @delegate("kitchen", ["oven", "fridge"])
-    @delegate("kitchen", "bake", "make_cake")
-    @dataclass
-    @delegates(
-        ("kitchen.fridge", "cool"),
-        ("kitchen", "oven.heat"),
-    )
-    class House:
-        kitchen: Kitchen
-
-    fridge = Fridge("Bosch")
-    oven = Oven("Electrolux")
-    kitchen = Kitchen(fridge, oven)
-    house = House(kitchen)
-
-    print(house.oven, house.fridge)
-    print(house.bake())
-    print(house.cool())
-    print(house.heat())
-    print(house.make_cake())
-
-
-if __name__ == "__main__":
-    _main()
